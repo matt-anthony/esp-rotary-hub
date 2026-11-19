@@ -37,8 +37,8 @@ static lv_obj_t *p_btns[3] = {nullptr, nullptr, nullptr};
 // Blender 3D navigation widgets
 static lv_obj_t *b_arc_ring = nullptr;
 static lv_obj_t *b_pad = nullptr;
-static lv_obj_t *b_lbl_pad = nullptr;
-static lv_obj_t *b_mode_btns[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t *b_lbl_mode = nullptr;
+static lv_obj_t *b_lbl_hint = nullptr;
 static BlenderMode current_blender_mode = BLENDER_ORBIT;
 
 static UiView current_view = VIEW_MEDIA;
@@ -106,9 +106,9 @@ static void on_media_btn_click(lv_event_t *e) {
   }
 }
 
-static void on_blender_mode_click(lv_event_t *e) {
-  int idx = (int)(intptr_t)lv_event_get_user_data(e);
-  ui_blender_set_mode((BlenderMode)idx);
+static void on_blender_snap_click(lv_event_t *e) {
+  const char *viewName = (const char *)lv_event_get_user_data(e);
+  if (cb_blender && viewName) cb_blender("snap", viewName, 0, 0);
 }
 
 static void on_blender_pad_event(lv_event_t *e) {
@@ -445,32 +445,37 @@ static void build_approval_screen() {
 }
 
 static void update_blender_mode_styles() {
-  const uint32_t cols[3] = {COL_CYAN, COL_AMBER, COL_GREEN};
-  const char *hints[3] = {"DRAG: ORBIT / TILT\nDIAL: TURNTABLE", "DRAG: PAN 2D\nDIAL: PAN X", "DRAG: ZOOM\nDIAL: ZOOM IN/OUT"};
-  for (int i = 0; i < 3; i++) {
-    if (!b_mode_btns[i]) continue;
-    if (i == (int)current_blender_mode) {
-      lv_obj_set_style_bg_color(b_mode_btns[i], lv_color_hex(cols[i]), 0);
-      lv_obj_set_style_bg_opa(b_mode_btns[i], LV_OPA_COVER, 0);
-      lv_obj_set_style_border_width(b_mode_btns[i], 2, 0);
-      lv_obj_set_style_border_color(b_mode_btns[i], lv_color_hex(0xFFFFFF), 0);
-      lv_obj_t *lbl = lv_obj_get_child(b_mode_btns[i], 0);
-      if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(COL_BG), 0);
-    } else {
-      lv_obj_set_style_bg_color(b_mode_btns[i], lv_color_hex(COL_CARD), 0);
-      lv_obj_set_style_bg_opa(b_mode_btns[i], LV_OPA_80, 0);
-      lv_obj_set_style_border_width(b_mode_btns[i], 1, 0);
-      lv_obj_set_style_border_color(b_mode_btns[i], lv_color_hex(cols[i]), 0);
-      lv_obj_t *lbl = lv_obj_get_child(b_mode_btns[i], 0);
-      if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TEXT), 0);
-    }
-  }
+  uint32_t col = (current_blender_mode == BLENDER_PAN) ? COL_AMBER : COL_CYAN;
   if (b_arc_ring) {
-    lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(cols[current_blender_mode]), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(col), LV_PART_INDICATOR);
   }
-  if (b_lbl_pad) {
-    lv_label_set_text(b_lbl_pad, hints[current_blender_mode]);
+  if (b_pad) {
+    lv_obj_set_style_border_color(b_pad, lv_color_hex(col), 0);
   }
+  if (b_lbl_mode) {
+    lv_label_set_text(b_lbl_mode, current_blender_mode == BLENDER_PAN ? "PAN" : "ORBIT");
+    lv_obj_set_style_text_color(b_lbl_mode, lv_color_hex(col), 0);
+  }
+  if (b_lbl_hint) {
+    lv_label_set_text(b_lbl_hint, "DRAG: MOVE\nDIAL: ZOOM");
+  }
+}
+
+static void make_snap_btn(lv_obj_t *parent, const char *txt, const char *snapKey, int xOff, int yOff, int w, int h) {
+  lv_obj_t *btn = lv_btn_create(parent);
+  lv_obj_set_size(btn, w, h);
+  lv_obj_set_style_radius(btn, h / 2, 0);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_border_width(btn, 1, 0);
+  lv_obj_set_style_border_color(btn, lv_color_hex(0x334155), 0);
+  lv_obj_align(btn, LV_ALIGN_CENTER, xOff, yOff);
+  lv_obj_add_event_cb(btn, on_blender_snap_click, LV_EVENT_CLICKED, (void *)snapKey);
+
+  lv_obj_t *lbl = lv_label_create(btn);
+  lv_label_set_text(lbl, txt);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TEXT), 0);
+  lv_obj_center(lbl);
 }
 
 static void build_blender_screen() {
@@ -489,68 +494,56 @@ static void build_blender_screen() {
   lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(0x1E293B), LV_PART_MAIN);
   lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(COL_CYAN), LV_PART_INDICATOR);
 
-  lv_obj_t *lbl_hdr = lv_label_create(scr_blender);
-  lv_label_set_text(lbl_hdr, "BLENDER 3D");
-  lv_obj_set_style_text_font(lbl_hdr, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(lbl_hdr, lv_color_hex(0xF97316), 0);
-  lv_obj_align(lbl_hdr, LV_ALIGN_TOP_MID, 0, 34);
-
+  // Top exit pill
   lv_obj_t *btn_media = lv_btn_create(scr_blender);
-  lv_obj_set_size(btn_media, 112, 22);
+  lv_obj_set_size(btn_media, 72, 22);
   lv_obj_set_style_radius(btn_media, 11, 0);
   lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_CARD), 0);
   lv_obj_set_style_border_width(btn_media, 1, 0);
   lv_obj_set_style_border_color(btn_media, lv_color_hex(COL_MUTED), 0);
-  lv_obj_align(btn_media, LV_ALIGN_TOP_MID, 0, 56);
+  lv_obj_align(btn_media, LV_ALIGN_CENTER, 0, -142);
   lv_obj_add_event_cb(btn_media, on_media_btn_click, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *lbl_m = lv_label_create(btn_media);
-  lv_label_set_text(lbl_m, "BACK TO MEDIA");
+  lv_label_set_text(lbl_m, "MEDIA");
   lv_obj_set_style_text_font(lbl_m, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_m, lv_color_hex(COL_SUBTEXT), 0);
   lv_obj_center(lbl_m);
 
-  // Center circular-safe touchpad zone
+  // Center circular touchpad (168x168) for 2D Orbit / Pan
   b_pad = lv_obj_create(scr_blender);
-  lv_obj_set_size(b_pad, 218, 134);
-  lv_obj_set_style_radius(b_pad, 28, 0);
+  lv_obj_set_size(b_pad, 168, 168);
+  lv_obj_set_style_radius(b_pad, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(b_pad, lv_color_hex(COL_CARD), 0);
-  lv_obj_set_style_border_width(b_pad, 1, 0);
-  lv_obj_set_style_border_color(b_pad, lv_color_hex(0x334155), 0);
+  lv_obj_set_style_border_width(b_pad, 2, 0);
+  lv_obj_set_style_border_color(b_pad, lv_color_hex(COL_CYAN), 0);
   lv_obj_clear_flag(b_pad, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_align(b_pad, LV_ALIGN_CENTER, 0, -10);
+  lv_obj_center(b_pad);
   lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESSED, nullptr);
   lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESSING, nullptr);
   lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_RELEASED, nullptr);
   lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESS_LOST, nullptr);
 
-  b_lbl_pad = lv_label_create(b_pad);
-  lv_obj_set_style_text_align(b_lbl_pad, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(b_lbl_pad, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(b_lbl_pad, lv_color_hex(COL_SUBTEXT), 0);
-  lv_obj_center(b_lbl_pad);
+  b_lbl_mode = lv_label_create(b_pad);
+  lv_obj_set_style_text_font(b_lbl_mode, &lv_font_montserrat_20, 0);
+  lv_obj_align(b_lbl_mode, LV_ALIGN_CENTER, 0, -18);
 
-  // Mode selector pills: ORBIT | PAN | ZOOM
-  const char *mlbls[3] = {"ORBIT", "PAN", "ZOOM"};
-  const int xs[3] = {-70, 0, 70};
-  const int ws[3] = {68, 60, 68};
-  for (int i = 0; i < 3; i++) {
-    b_mode_btns[i] = lv_btn_create(scr_blender);
-    lv_obj_set_size(b_mode_btns[i], ws[i], 38);
-    lv_obj_set_style_radius(b_mode_btns[i], 19, 0);
-    lv_obj_align(b_mode_btns[i], LV_ALIGN_BOTTOM_MID, xs[i], -64);
-    lv_obj_add_event_cb(b_mode_btns[i], on_blender_mode_click, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+  b_lbl_hint = lv_label_create(b_pad);
+  lv_obj_set_style_text_align(b_lbl_hint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(b_lbl_hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(b_lbl_hint, lv_color_hex(COL_SUBTEXT), 0);
+  lv_obj_align(b_lbl_hint, LV_ALIGN_CENTER, 0, 14);
 
-    lv_obj_t *lbl = lv_label_create(b_mode_btns[i]);
-    lv_label_set_text(lbl, mlbls[i]);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(lbl);
-  }
+  // Cardinal radial view-snap ring (N=TOP, S=FRONT, E=SIDE, W=ORTHO)
+  make_snap_btn(scr_blender, "TOP",   "top",    0,   -110, 56, 26);
+  make_snap_btn(scr_blender, "FRONT", "front",  0,    110, 62, 26);
+  make_snap_btn(scr_blender, "SIDE",  "side",   114,  0,   48, 34);
+  make_snap_btn(scr_blender, "ORTHO", "ortho", -114,  0,   52, 34);
 
-  lv_obj_t *lbl_hint = lv_label_create(scr_blender);
-  lv_label_set_text(lbl_hint, "2X: FRAME");
-  lv_obj_set_style_text_font(lbl_hint, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl_hint, lv_color_hex(COL_MUTED), 0);
-  lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -36);
+  lv_obj_t *lbl_foot = lv_label_create(scr_blender);
+  lv_label_set_text(lbl_foot, "1X:PAN  2X:FRAME");
+  lv_obj_set_style_text_font(lbl_foot, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_foot, lv_color_hex(COL_MUTED), 0);
+  lv_obj_align(lbl_foot, LV_ALIGN_CENTER, 0, 140);
 
   update_blender_mode_styles();
 }
@@ -725,18 +718,14 @@ void ui_blender_set_mode(BlenderMode mode) {
 }
 
 void ui_blender_cycle_mode() {
-  current_blender_mode = (BlenderMode)(((int)current_blender_mode + 1) % 3);
+  current_blender_mode = (current_blender_mode == BLENDER_ORBIT) ? BLENDER_PAN : BLENDER_ORBIT;
   update_blender_mode_styles();
 }
 
 BlenderMode ui_get_blender_mode() { return current_blender_mode; }
 
 const char *ui_get_blender_mode_str() {
-  switch (current_blender_mode) {
-    case BLENDER_PAN:  return "pan";
-    case BLENDER_ZOOM: return "zoom";
-    default:           return "orbit";
-  }
+  return (current_blender_mode == BLENDER_PAN) ? "pan" : "orbit";
 }
 
 uint8_t *ui_get_art_buffer() { return m_art_buf; }

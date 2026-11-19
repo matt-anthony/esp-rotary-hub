@@ -228,6 +228,13 @@ class MacBlenderController:
     kCGScrollEventUnitPixel = 0
     kCGEventFlagMaskShift = 0x00020000
     kVK_ANSI_KeypadDecimal = 0x41
+    SNAP_KEYCODES = {
+        "top": 0x59,    # Numpad 7
+        "front": 0x53,  # Numpad 1
+        "side": 0x55,   # Numpad 3
+        "ortho": 0x57,  # Numpad 5
+        "frame": 0x41,  # Numpad .
+    }
 
     def __init__(self) -> None:
         self.cg = ctypes.cdll.LoadLibrary(
@@ -294,11 +301,9 @@ class MacBlenderController:
         self.cg.CGEventPost(self.kCGHIDEventTap, ev)
         self.cf.CFRelease(ev)
 
-    def _post_frame_selected(self) -> None:
+    def _post_key(self, keycode: int) -> None:
         for down in (True, False):
-            ev = self.cg.CGEventCreateKeyboardEvent(
-                None, self.kVK_ANSI_KeypadDecimal, down
-            )
+            ev = self.cg.CGEventCreateKeyboardEvent(None, keycode, down)
             self.cg.CGEventPost(self.kCGHIDEventTap, ev)
             self.cf.CFRelease(ev)
 
@@ -318,7 +323,14 @@ class MacBlenderController:
     def handle(self, act: str, mode: str, dx: int, dy: int) -> None:
         if act == "frame":
             self.end_drag()
-            self._post_frame_selected()
+            self._post_key(self.SNAP_KEYCODES["frame"])
+            return
+
+        if act == "snap":
+            self.end_drag()
+            kc = self.SNAP_KEYCODES.get(mode)
+            if kc is not None:
+                self._post_key(kc)
             return
 
         if act == "end":

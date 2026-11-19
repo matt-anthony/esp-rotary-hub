@@ -157,8 +157,8 @@ static void my_touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
     lastY = ty;
 
     bool swipeAllowed = !ui_is_approval_active();
-    if (ui_get_current_view() == VIEW_BLENDER && startY >= 85 && startY <= 275) {
-      swipeAllowed = false;  // Reserve center pad for 3D drag
+    if (ui_get_current_view() == VIEW_BLENDER && startY >= 45 && startY <= 315) {
+      swipeAllowed = false;  // Reserve pad + cardinal snap ring for 3D controls
     }
 
     if (!swiped && swipeAllowed) {
@@ -335,7 +335,7 @@ static void pollEncoderAndButton() {
     if (ui_is_approval_active()) {
       ui_approval_move_selection(detents > 0 ? 1 : -1);
     } else if (ui_get_current_view() == VIEW_BLENDER) {
-      sendBlenderCmd("dial", ui_get_blender_mode_str(), (int)detents, 0);
+      sendBlenderCmd("dial", "zoom", (int)detents, 0);
     } else {
       sendVolumeDelta((int)detents);
     }

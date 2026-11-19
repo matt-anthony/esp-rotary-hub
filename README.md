@@ -18,10 +18,11 @@ Turns your USB-connected **IDEAQUX / Elecrow CrowPanel 1.46" HMI ESP32-S3 Rotary
 | **Media View** | **Double click** (or tap `>` / `<`) | Next / Previous track |
 | **Agent View** | **Single click** (or tap `FOCUS`) | Bring Antigravity or VS Code to the foreground |
 | **Agent View** | **Double click** (or tap `MEDIA`) | Return to Media view |
-| **Blender 3D View** | **Drag center pad** | 2D **Orbit/Tilt**, **Pan**, or **Zoom** in Blender's viewport |
-| **Blender 3D View** | **Rotate knob** | Turntable orbit, horizontal pan, or smooth zoom (matches active mode) |
-| **Blender 3D View** | **Single click** (or tap `ORBIT`/`PAN`/`ZOOM`) | Cycle navigation mode |
+| **Blender 3D View** | **Drag center pad** | Smooth 2D **Orbit/Tilt** or **Pan** in Blender's viewport |
+| **Blender 3D View** | **Rotate knob** | Always **Zoom** in/out smoothly |
+| **Blender 3D View** | **Single click** | Toggle center pad between **ORBIT** and **PAN** |
 | **Blender 3D View** | **Double click** | Frame Selected (`Numpad .`) |
+| **Blender 3D View** | **Tap `TOP` / `FRONT` / `SIDE` / `ORTHO`** | Snap to cardinal views (`Numpad 7/1/3/5`) |
 | **Approval Popup** | **Rotate knob** | Cycle between **ALLOW**, **DENY**, and **IDE** (focus & ask in IDE) |
 | **Approval Popup** | **Single click** (or tap pill directly) | Send decision immediately back to the coding agent |
 

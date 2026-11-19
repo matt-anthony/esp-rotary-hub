@@ -12,8 +12,7 @@ enum UiView : uint8_t {
 
 enum BlenderMode : uint8_t {
   BLENDER_ORBIT = 0,
-  BLENDER_PAN   = 1,
-  BLENDER_ZOOM  = 2
+  BLENDER_PAN   = 1
 };
 
 enum AgentState : uint8_t {
