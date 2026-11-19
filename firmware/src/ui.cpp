@@ -63,17 +63,126 @@ static UiApprovalDecisionCb cb_approval = nullptr;
 static UiFocusIdeCb cb_focus = nullptr;
 static UiBlenderCb cb_blender = nullptr;
 
-// Color palette
-static const uint32_t COL_BG      = 0x0B0E14;
-static const uint32_t COL_CARD    = 0x161B26;
-static const uint32_t COL_CYAN    = 0x22D3EE;
-static const uint32_t COL_BLUE    = 0x3B82F6;
-static const uint32_t COL_GREEN   = 0x10B981;
-static const uint32_t COL_AMBER   = 0xF59E0B;
-static const uint32_t COL_RED     = 0xEF4444;
-static const uint32_t COL_MUTED   = 0x64748B;
-static const uint32_t COL_TEXT    = 0xF8FAFC;
-static const uint32_t COL_SUBTEXT = 0x94A3B8;
+// Color palette (Material 3 Expressive dark tonal surfaces)
+static const uint32_t COL_BG        = 0x0B0E14;
+static const uint32_t COL_SURF      = 0x161D2B;  // surfaceContainer
+static const uint32_t COL_SURF_HIGH = 0x202A3D;  // surfaceContainerHigh
+static const uint32_t COL_CARD      = 0x161D2B;
+static const uint32_t COL_CYAN      = 0x22D3EE;
+static const uint32_t COL_BLUE      = 0x60A5FA;
+static const uint32_t COL_GREEN     = 0x34D399;
+static const uint32_t COL_AMBER     = 0xFBBF24;
+static const uint32_t COL_RED       = 0xF87171;
+static const uint32_t COL_MUTED     = 0x64748B;
+static const uint32_t COL_TEXT      = 0xF8FAFC;
+static const uint32_t COL_SUBTEXT   = 0x94A3B8;
+
+// Global M3 Expressive overlays (top layer)
+static lv_obj_t *toast_pill = nullptr;
+static lv_obj_t *toast_dot = nullptr;
+static lv_obj_t *toast_lbl = nullptr;
+static unsigned long toast_hide_at = 0;
+static bool toast_visible = false;
+
+static lv_obj_t *vol_hud_pill = nullptr;
+static lv_obj_t *vol_hud_lbl = nullptr;
+static unsigned long vol_hud_hide_at = 0;
+static bool vol_hud_visible = false;
+static uint16_t agent_spin_deg = 0;
+
+static lv_style_t style_spring_press;
+static bool styles_inited = false;
+
+static void init_expressive_styles() {
+  if (styles_inited) return;
+  styles_inited = true;
+  lv_style_init(&style_spring_press);
+  lv_style_set_transform_zoom(&style_spring_press, 238);  // ~93% springy press
+  lv_style_set_transform_pivot_x(&style_spring_press, LV_PCT(50));
+  lv_style_set_transform_pivot_y(&style_spring_press, LV_PCT(50));
+}
+
+static void apply_spring_press(lv_obj_t *obj) {
+  lv_obj_add_style(obj, &style_spring_press, LV_STATE_PRESSED);
+}
+
+static void anim_set_y_cb(void *obj, int32_t v) {
+  lv_obj_set_y((lv_obj_t *)obj, (lv_coord_t)v);
+}
+
+static void anim_set_opa_cb(void *obj, int32_t v) {
+  lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
+}
+
+static void show_toast(const char *msg, uint32_t accentCol) {
+  if (!toast_pill || !toast_lbl || !toast_dot) return;
+  lv_label_set_text(toast_lbl, msg);
+  lv_obj_set_style_bg_color(toast_dot, lv_color_hex(accentCol), 0);
+  lv_obj_set_style_bg_color(toast_pill, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_clear_flag(toast_pill, LV_OBJ_FLAG_HIDDEN);
+  toast_hide_at = millis() + 3500;
+
+  if (!toast_visible) {
+    toast_visible = true;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, toast_pill);
+    lv_anim_set_values(&a, -44, 30);
+    lv_anim_set_time(&a, 220);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&a, anim_set_y_cb);
+    lv_anim_start(&a);
+  }
+}
+
+static void hide_toast() {
+  if (!toast_pill || !toast_visible) return;
+  toast_visible = false;
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, toast_pill);
+  lv_anim_set_values(&a, lv_obj_get_y(toast_pill), -44);
+  lv_anim_set_time(&a, 180);
+  lv_anim_set_path_cb(&a, lv_anim_path_ease_in);
+  lv_anim_set_exec_cb(&a, anim_set_y_cb);
+  lv_anim_start(&a);
+}
+
+static void on_toast_click(lv_event_t *e) {
+  (void)e;
+  hide_toast();
+  if (!active_approval.active && current_view != VIEW_AGENT) {
+    current_view = VIEW_AGENT;
+    prev_main_view = VIEW_AGENT;
+    lv_scr_load_anim(scr_agent, LV_SCR_LOAD_ANIM_MOVE_LEFT, 160, 0, false);
+  }
+}
+
+static void show_vol_hud(int vol, bool muted) {
+  if (!vol_hud_pill || !vol_hud_lbl) return;
+  if (muted) {
+    lv_label_set_text(vol_hud_lbl, "MUTED");
+    lv_obj_set_style_text_color(vol_hud_lbl, lv_color_hex(COL_MUTED), 0);
+  } else {
+    lv_label_set_text_fmt(vol_hud_lbl, "VOL %d%%", vol);
+    lv_obj_set_style_text_color(vol_hud_lbl, lv_color_hex(m_accent_hex), 0);
+  }
+  vol_hud_hide_at = millis() + 1200;
+  if (m_arc_vol) {
+    lv_obj_set_style_arc_width(m_arc_vol, 14, LV_PART_INDICATOR);
+  }
+  if (!vol_hud_visible) {
+    vol_hud_visible = true;
+    lv_obj_clear_flag(vol_hud_pill, LV_OBJ_FLAG_HIDDEN);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, vol_hud_pill);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_time(&a, 140);
+    lv_anim_set_exec_cb(&a, anim_set_opa_cb);
+    lv_anim_start(&a);
+  }
+}
 
 static void style_screen(lv_obj_t *scr) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(COL_BG), 0);
@@ -165,12 +274,14 @@ static void update_approval_selection_styles() {
   for (int i = 0; i < 3; i++) {
     if (!p_btns[i]) continue;
     if (i == active_approval.selectedOption) {
-      lv_obj_set_style_border_width(p_btns[i], 3, 0);
+      lv_obj_set_style_radius(p_btns[i], 21, 0);  // M3 active pill morph
+      lv_obj_set_style_border_width(p_btns[i], 2, 0);
       lv_obj_set_style_border_color(p_btns[i], lv_color_hex(0xFFFFFF), 0);
       lv_obj_set_style_bg_opa(p_btns[i], LV_OPA_COVER, 0);
     } else {
+      lv_obj_set_style_radius(p_btns[i], 10, 0);  // Connected inner segment shape
       lv_obj_set_style_border_width(p_btns[i], 0, 0);
-      lv_obj_set_style_bg_opa(p_btns[i], LV_OPA_50, 0);
+      lv_obj_set_style_bg_opa(p_btns[i], LV_OPA_40, 0);
     }
   }
 }
@@ -189,6 +300,27 @@ static uint32_t brighten_hex(uint8_t r, uint8_t g, uint8_t b) {
 
 static void media_wave_timer_cb(lv_timer_t *t) {
   (void)t;
+
+  // Auto-dismiss floating M3 toast & volume HUD
+  unsigned long now = millis();
+  if (toast_visible && now >= toast_hide_at) {
+    hide_toast();
+  }
+  if (vol_hud_visible && now >= vol_hud_hide_at) {
+    vol_hud_visible = false;
+    lv_obj_add_flag(vol_hud_pill, LV_OBJ_FLAG_HIDDEN);
+    if (m_arc_vol) {
+      lv_obj_set_style_arc_width(m_arc_vol, 10, LV_PART_INDICATOR);
+    }
+  }
+
+  // Indeterminate sweeping M3 progress ring while Agent is WORKING
+  if (current_view == VIEW_AGENT && current_agent_state == AGENT_WORKING && a_arc_ring) {
+    agent_spin_deg = (agent_spin_deg + 8) % 360;
+    lv_arc_set_rotation(a_arc_ring, agent_spin_deg);
+    lv_arc_set_angles(a_arc_ring, 0, 95);
+  }
+
   if (!m_wave_active || !m_wave_rest || !m_wave_thumb) return;
   if (current_view != VIEW_MEDIA) return;
 
@@ -275,16 +407,16 @@ static void build_media_screen() {
   lv_obj_set_style_text_color(m_lbl_app, lv_color_hex(COL_CYAN), 0);
   lv_obj_align(m_lbl_app, LV_ALIGN_TOP_MID, 0, 40);
 
-  // Compact live coding-agent status pill (always tappable to switch to Agent view)
+  // Compact live coding-agent status pill (tonal M3 chip)
   m_btn_agent_pill = lv_btn_create(scr_media);
   lv_obj_set_size(m_btn_agent_pill, 148, 24);
   lv_obj_set_style_radius(m_btn_agent_pill, 12, 0);
-  lv_obj_set_style_bg_color(m_btn_agent_pill, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_bg_color(m_btn_agent_pill, lv_color_hex(COL_SURF_HIGH), 0);
   lv_obj_set_style_bg_opa(m_btn_agent_pill, LV_OPA_80, 0);
-  lv_obj_set_style_border_width(m_btn_agent_pill, 1, 0);
-  lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(COL_MUTED), 0);
+  lv_obj_set_style_border_width(m_btn_agent_pill, 0, 0);
   lv_obj_align(m_btn_agent_pill, LV_ALIGN_TOP_MID, 0, 64);
   lv_obj_add_event_cb(m_btn_agent_pill, on_agent_pill_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(m_btn_agent_pill);
 
   m_lbl_agent_pill = lv_label_create(m_btn_agent_pill);
   lv_label_set_text(m_lbl_agent_pill, "AGENT: IDLE");
@@ -340,13 +472,15 @@ static void build_media_screen() {
 
   lv_timer_create(media_wave_timer_cb, 40, nullptr);
 
-  // Media control buttons: Prev, Play/Pause, Next
+  // Media control buttons: Prev, Play/Pause, Next (with springy M3 press)
   lv_obj_t *btn_prev = lv_btn_create(scr_media);
   lv_obj_set_size(btn_prev, 56, 56);
   lv_obj_set_style_radius(btn_prev, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(btn_prev, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_bg_color(btn_prev, lv_color_hex(COL_SURF), 0);
+  lv_obj_set_style_border_width(btn_prev, 0, 0);
   lv_obj_align(btn_prev, LV_ALIGN_CENTER, -84, 52);
   lv_obj_add_event_cb(btn_prev, on_prev_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(btn_prev);
   lv_obj_t *lbl_prev = lv_label_create(btn_prev);
   lv_label_set_text(lbl_prev, LV_SYMBOL_PREV);
   lv_obj_set_style_text_font(lbl_prev, &lv_font_montserrat_20, 0);
@@ -356,8 +490,10 @@ static void build_media_screen() {
   lv_obj_set_size(m_btn_play, 72, 72);
   lv_obj_set_style_radius(m_btn_play, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(m_btn_play, lv_color_hex(COL_CYAN), 0);
+  lv_obj_set_style_border_width(m_btn_play, 0, 0);
   lv_obj_align(m_btn_play, LV_ALIGN_CENTER, 0, 52);
   lv_obj_add_event_cb(m_btn_play, on_play_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(m_btn_play);
   m_lbl_play = lv_label_create(m_btn_play);
   lv_label_set_text(m_lbl_play, LV_SYMBOL_PLAY);
   lv_obj_set_style_text_color(m_lbl_play, lv_color_hex(COL_BG), 0);
@@ -367,9 +503,11 @@ static void build_media_screen() {
   lv_obj_t *btn_next = lv_btn_create(scr_media);
   lv_obj_set_size(btn_next, 56, 56);
   lv_obj_set_style_radius(btn_next, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(btn_next, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_bg_color(btn_next, lv_color_hex(COL_SURF), 0);
+  lv_obj_set_style_border_width(btn_next, 0, 0);
   lv_obj_align(btn_next, LV_ALIGN_CENTER, 84, 52);
   lv_obj_add_event_cb(btn_next, on_next_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(btn_next);
   lv_obj_t *lbl_next = lv_label_create(btn_next);
   lv_label_set_text(lbl_next, LV_SYMBOL_NEXT);
   lv_obj_set_style_text_font(lbl_next, &lv_font_montserrat_20, 0);
@@ -435,13 +573,13 @@ static void build_agent_screen() {
   lv_obj_align(a_lbl_detail, LV_ALIGN_CENTER, 0, 42);
 
   lv_obj_t *btn_media = lv_btn_create(scr_agent);
-  lv_obj_set_size(btn_media, 84, 38);
-  lv_obj_set_style_radius(btn_media, 19, 0);
-  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_CARD), 0);
-  lv_obj_set_style_border_width(btn_media, 2, 0);
-  lv_obj_set_style_border_color(btn_media, lv_color_hex(COL_CYAN), 0);
-  lv_obj_align(btn_media, LV_ALIGN_BOTTOM_MID, -46, -54);
+  lv_obj_set_size(btn_media, 84, 40);
+  lv_obj_set_style_radius(btn_media, 20, 0);
+  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_set_style_border_width(btn_media, 0, 0);
+  lv_obj_align(btn_media, LV_ALIGN_BOTTOM_MID, -45, -54);
   lv_obj_add_event_cb(btn_media, on_media_btn_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(btn_media);
   lv_obj_t *lbl_media = lv_label_create(btn_media);
   lv_label_set_text(lbl_media, "MEDIA");
   lv_obj_set_style_text_font(lbl_media, &lv_font_montserrat_14, 0);
@@ -449,16 +587,17 @@ static void build_agent_screen() {
   lv_obj_center(lbl_media);
 
   lv_obj_t *btn_focus = lv_btn_create(scr_agent);
-  lv_obj_set_size(btn_focus, 84, 38);
-  lv_obj_set_style_radius(btn_focus, 19, 0);
-  lv_obj_set_style_bg_color(btn_focus, lv_color_hex(COL_CARD), 0);
-  lv_obj_set_style_border_width(btn_focus, 2, 0);
-  lv_obj_set_style_border_color(btn_focus, lv_color_hex(COL_BLUE), 0);
-  lv_obj_align(btn_focus, LV_ALIGN_BOTTOM_MID, 46, -54);
+  lv_obj_set_size(btn_focus, 84, 40);
+  lv_obj_set_style_radius(btn_focus, 20, 0);
+  lv_obj_set_style_bg_color(btn_focus, lv_color_hex(COL_BLUE), 0);
+  lv_obj_set_style_border_width(btn_focus, 0, 0);
+  lv_obj_align(btn_focus, LV_ALIGN_BOTTOM_MID, 45, -54);
   lv_obj_add_event_cb(btn_focus, on_focus_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(btn_focus);
   lv_obj_t *lbl_focus = lv_label_create(btn_focus);
   lv_label_set_text(lbl_focus, "FOCUS");
   lv_obj_set_style_text_font(lbl_focus, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl_focus, lv_color_hex(COL_BG), 0);
   lv_obj_center(lbl_focus);
 }
 
@@ -508,21 +647,22 @@ static void build_approval_screen() {
 
   const char *labels[3] = {"ALLOW", "DENY", "IDE"};
   const uint32_t colors[3] = {COL_GREEN, COL_RED, COL_BLUE};
-  const int xs[3] = {-74, 0, 72};
-  const int ws[3] = {72, 68, 56};
+  const int xs[3] = {-66, 4, 68};
+  const int ws[3] = {70, 66, 56};
 
   for (int i = 0; i < 3; i++) {
     p_btns[i] = lv_btn_create(scr_approval);
     lv_obj_set_size(p_btns[i], ws[i], 42);
-    lv_obj_set_style_radius(p_btns[i], 18, 0);
+    lv_obj_set_style_radius(p_btns[i], 10, 0);
     lv_obj_set_style_bg_color(p_btns[i], lv_color_hex(colors[i]), 0);
     lv_obj_align(p_btns[i], LV_ALIGN_BOTTOM_MID, xs[i], -72);
     lv_obj_add_event_cb(p_btns[i], on_approval_btn_click, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    apply_spring_press(p_btns[i]);
 
     lv_obj_t *lbl = lv_label_create(p_btns[i]);
     lv_label_set_text(lbl, labels[i]);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0x0B0E14), 0);
     lv_obj_center(lbl);
   }
   update_approval_selection_styles();
@@ -549,11 +689,11 @@ static void make_snap_btn(lv_obj_t *parent, const char *txt, const char *snapKey
   lv_obj_t *btn = lv_btn_create(parent);
   lv_obj_set_size(btn, w, h);
   lv_obj_set_style_radius(btn, h / 2, 0);
-  lv_obj_set_style_bg_color(btn, lv_color_hex(COL_CARD), 0);
-  lv_obj_set_style_border_width(btn, 1, 0);
-  lv_obj_set_style_border_color(btn, lv_color_hex(0x334155), 0);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_set_style_border_width(btn, 0, 0);
   lv_obj_align(btn, LV_ALIGN_CENTER, xOff, yOff);
   lv_obj_add_event_cb(btn, on_blender_snap_click, LV_EVENT_CLICKED, (void *)snapKey);
+  apply_spring_press(btn);
 
   lv_obj_t *lbl = lv_label_create(btn);
   lv_label_set_text(lbl, txt);
@@ -578,15 +718,15 @@ static void build_blender_screen() {
   lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(0x1E293B), LV_PART_MAIN);
   lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(COL_CYAN), LV_PART_INDICATOR);
 
-  // Top exit pill
+  // Top exit pill (tonal M3)
   lv_obj_t *btn_media = lv_btn_create(scr_blender);
   lv_obj_set_size(btn_media, 72, 22);
   lv_obj_set_style_radius(btn_media, 11, 0);
-  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_CARD), 0);
-  lv_obj_set_style_border_width(btn_media, 1, 0);
-  lv_obj_set_style_border_color(btn_media, lv_color_hex(COL_MUTED), 0);
+  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_set_style_border_width(btn_media, 0, 0);
   lv_obj_align(btn_media, LV_ALIGN_CENTER, 0, -142);
   lv_obj_add_event_cb(btn_media, on_media_btn_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(btn_media);
   lv_obj_t *lbl_m = lv_label_create(btn_media);
   lv_label_set_text(lbl_m, "MEDIA");
   lv_obj_set_style_text_font(lbl_m, &lv_font_montserrat_12, 0);
@@ -632,16 +772,66 @@ static void build_blender_screen() {
   update_blender_mode_styles();
 }
 
+static void build_top_overlays() {
+  lv_obj_t *top = lv_layer_top();
+
+  // Floating M3 Expressive capsule toast notification
+  toast_pill = lv_btn_create(top);
+  lv_obj_set_size(toast_pill, 206, 36);
+  lv_obj_set_style_radius(toast_pill, 18, 0);
+  lv_obj_set_style_bg_color(toast_pill, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_set_style_bg_opa(toast_pill, LV_OPA_90, 0);
+  lv_obj_set_style_border_width(toast_pill, 0, 0);
+  lv_obj_set_style_shadow_width(toast_pill, 14, 0);
+  lv_obj_set_style_shadow_color(toast_pill, lv_color_hex(0x000000), 0);
+  lv_obj_align(toast_pill, LV_ALIGN_TOP_MID, 0, -44);
+  lv_obj_add_flag(toast_pill, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(toast_pill, on_toast_click, LV_EVENT_CLICKED, nullptr);
+  apply_spring_press(toast_pill);
+
+  toast_dot = lv_obj_create(toast_pill);
+  lv_obj_set_size(toast_dot, 8, 8);
+  lv_obj_set_style_radius(toast_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(toast_dot, 0, 0);
+  lv_obj_clear_flag(toast_dot, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(toast_dot, LV_ALIGN_LEFT_MID, 4, 0);
+
+  toast_lbl = lv_label_create(toast_pill);
+  lv_label_set_long_mode(toast_lbl, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(toast_lbl, 166);
+  lv_obj_set_style_text_font(toast_lbl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(toast_lbl, lv_color_hex(COL_TEXT), 0);
+  lv_obj_align(toast_lbl, LV_ALIGN_LEFT_MID, 18, 0);
+
+  // Expressive Volume HUD pill
+  vol_hud_pill = lv_obj_create(top);
+  lv_obj_set_size(vol_hud_pill, 128, 32);
+  lv_obj_set_style_radius(vol_hud_pill, 16, 0);
+  lv_obj_set_style_bg_color(vol_hud_pill, lv_color_hex(COL_SURF_HIGH), 0);
+  lv_obj_set_style_bg_opa(vol_hud_pill, LV_OPA_90, 0);
+  lv_obj_set_style_border_width(vol_hud_pill, 0, 0);
+  lv_obj_clear_flag(vol_hud_pill, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(vol_hud_pill, LV_ALIGN_BOTTOM_MID, 0, -34);
+  lv_obj_add_flag(vol_hud_pill, LV_OBJ_FLAG_HIDDEN);
+
+  vol_hud_lbl = lv_label_create(vol_hud_pill);
+  lv_label_set_text(vol_hud_lbl, "VOL 35%");
+  lv_obj_set_style_text_font(vol_hud_lbl, &lv_font_montserrat_16, 0);
+  lv_obj_center(vol_hud_lbl);
+}
+
 void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb, UiBlenderCb blenderCb) {
   cb_media = mediaCb;
   cb_approval = approvalCb;
   cb_focus = focusCb;
   cb_blender = blenderCb;
 
+  init_expressive_styles();
   build_media_screen();
   build_agent_screen();
   build_blender_screen();
   build_approval_screen();
+  build_top_overlays();
 
   current_view = VIEW_MEDIA;
   prev_main_view = VIEW_MEDIA;
@@ -666,6 +856,7 @@ void ui_update_volume_local(int vol, bool muted) {
     lv_label_set_text_fmt(m_lbl_vol, "VOL %d%%", vol);
     lv_obj_set_style_arc_color(m_arc_vol, lv_color_hex(m_accent_hex), LV_PART_INDICATOR);
   }
+  show_vol_hud(vol, muted);
 }
 
 void ui_update_media(const MediaInfo &info) {
@@ -712,33 +903,33 @@ void ui_update_agent(const AgentInfo &info) {
   }
 
   lv_obj_set_style_arc_color(a_arc_ring, lv_color_hex(col), LV_PART_INDICATOR);
+  if (info.state != AGENT_WORKING && a_arc_ring) {
+    lv_arc_set_rotation(a_arc_ring, 0);
+    lv_arc_set_angles(a_arc_ring, 0, 360);
+  }
   lv_obj_set_style_text_color(a_lbl_platform, lv_color_hex(col), 0);
   lv_obj_set_style_text_color(a_lbl_state, lv_color_hex(col), 0);
   lv_label_set_text(a_lbl_state, stateTxt);
   lv_label_set_text(a_lbl_title, info.title.length() ? info.title.c_str() : "Ready");
   lv_label_set_text(a_lbl_detail, info.detail.c_str());
 
-  // Update the compact status pill on the Media screen so coding updates are
-  // always visible and tappable even while watching Now Playing.
-  if (m_btn_agent_pill && m_lbl_agent_pill) {
-    String shortPlat = active_platform;
-    if (shortPlat == "antigravity") shortPlat = "AGY";
-    else if (shortPlat == "claude-code") shortPlat = "CLAUDE";
-    else shortPlat.toUpperCase();
+  // Update the compact status pill on the Media screen
+  String shortPlat = active_platform;
+  if (shortPlat == "antigravity") shortPlat = "AGY";
+  else if (shortPlat == "claude-code") shortPlat = "CLAUDE";
+  else shortPlat.toUpperCase();
 
+  if (m_btn_agent_pill && m_lbl_agent_pill) {
     String pillTxt = shortPlat + ": " + String(stateTxt);
     lv_label_set_text(m_lbl_agent_pill, pillTxt.c_str());
-    lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(col), 0);
     lv_obj_set_style_text_color(m_lbl_agent_pill, lv_color_hex(col), 0);
   }
 
-  // Auto-surface the Agent screen on actionable states (done, error, waiting)
-  // so coding notifications are never missed.
-  if (!active_approval.active && current_view == VIEW_MEDIA &&
+  // Float a non-intrusive M3 capsule toast when on Media or Blender
+  if (!active_approval.active && current_view != VIEW_AGENT &&
       (info.state == AGENT_DONE || info.state == AGENT_ERROR || info.state == AGENT_WAITING)) {
-    current_view = VIEW_AGENT;
-    prev_main_view = VIEW_AGENT;
-    lv_scr_load_anim(scr_agent, LV_SCR_LOAD_ANIM_MOVE_LEFT, 160, 0, false);
+    String toastMsg = shortPlat + " · " + (info.title.length() ? info.title : String(stateTxt));
+    show_toast(toastMsg.c_str(), col);
   }
 }
 
