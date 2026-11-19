@@ -1,0 +1,60 @@
+{
+  "esp-rotary-hub": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity",
+        "timeout": 5
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity",
+        "timeout": 5
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "edit_file|write_file|read_file|search_web|run_workflow|invoke_subagent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity --approve --timeout 25",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform antigravity",
+        "timeout": 5
+      }
+    ]
+  }
+}

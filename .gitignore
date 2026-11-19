@@ -1,0 +1,12 @@
+# PlatformIO build artifacts & local dependencies
+firmware/.pio/
+firmware/.vscode/
+
+# Cloned third-party reference repos
+references/
+
+# Python / macOS
+__pycache__/
+*.pyc
+.DS_Store
+*.log

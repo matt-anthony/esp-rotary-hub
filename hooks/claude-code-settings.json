@@ -1,0 +1,51 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform claude-code --event PermissionRequest --approve --timeout 25",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform claude-code --event PreToolUse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform claude-code --event Notification",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/path/to/esp-rotary-hub/hooks/agent_bridge.py\" --platform claude-code --event Stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
