@@ -249,6 +249,9 @@ static void handleSerialLine(const String &line) {
       mediaAccentG = doc["rgb"][1] | 210;
       mediaAccentB = doc["rgb"][2] | 240;
     }
+    info.accentR = mediaAccentR;
+    info.accentG = mediaAccentG;
+    info.accentB = mediaAccentB;
     ui_update_media(info);
   } else if (strcmp(type, "ac") == 0) {
     // Framed Base64 RGB565 chunk: {"t":"ac","o":<offset>,"d":"<b64>"}

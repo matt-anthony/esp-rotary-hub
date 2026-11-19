@@ -1,4 +1,5 @@
 #include "ui.h"
+#include <math.h>
 
 static lv_obj_t *scr_media = nullptr;
 static lv_obj_t *scr_agent = nullptr;
@@ -13,7 +14,17 @@ static lv_obj_t *m_arc_vol = nullptr;
 static lv_obj_t *m_lbl_app = nullptr;
 static lv_obj_t *m_lbl_title = nullptr;
 static lv_obj_t *m_lbl_artist = nullptr;
-static lv_obj_t *m_bar_prog = nullptr;
+static lv_obj_t *m_wave_box = nullptr;
+static lv_obj_t *m_wave_active = nullptr;
+static lv_obj_t *m_wave_rest = nullptr;
+static lv_obj_t *m_wave_thumb = nullptr;
+static lv_point_t m_wave_pts[48];
+static lv_point_t m_rest_pts[2];
+static float m_wave_phase = 0.0f;
+static float m_wave_amp = 0.0f;
+static int m_media_progress = 0;
+static bool m_media_playing = false;
+static uint32_t m_accent_hex = 0x22D3EE;
 static lv_obj_t *m_btn_play = nullptr;
 static lv_obj_t *m_lbl_play = nullptr;
 static lv_obj_t *m_lbl_vol = nullptr;
@@ -164,6 +175,60 @@ static void update_approval_selection_styles() {
   }
 }
 
+static uint32_t brighten_hex(uint8_t r, uint8_t g, uint8_t b) {
+  // Ensure dynamic Material color has vivid contrast on dark OLED/IPS backgrounds
+  int mx = max((int)r, max((int)g, (int)b));
+  if (mx < 140) {
+    float boost = 190.0f / (float)max(mx, 1);
+    r = (uint8_t)min(255, (int)(r * boost + 35));
+    g = (uint8_t)min(255, (int)(g * boost + 35));
+    b = (uint8_t)min(255, (int)(b * boost + 35));
+  }
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static void media_wave_timer_cb(lv_timer_t *t) {
+  (void)t;
+  if (!m_wave_active || !m_wave_rest || !m_wave_thumb) return;
+  if (current_view != VIEW_MEDIA) return;
+
+  // Smoothly ease amplitude between 4.2px (playing) and 0px (paused straight line)
+  float targetAmp = m_media_playing ? 4.2f : 0.0f;
+  m_wave_amp += (targetAmp - m_wave_amp) * 0.25f;
+  if (fabsf(targetAmp - m_wave_amp) < 0.08f) m_wave_amp = targetAmp;
+
+  if (m_media_playing) {
+    m_wave_phase += 0.24f;
+    if (m_wave_phase > 62.8318f) m_wave_phase -= 62.8318f;
+  }
+
+  const int totalW = 196;
+  const int midY = 9;
+  int splitX = (totalW * constrain(m_media_progress, 0, 100)) / 100;
+  if (splitX < 4) splitX = 4;
+
+  // Build active wavy segment (0 .. splitX)
+  const int numPts = 42;
+  for (int i = 0; i < numPts; i++) {
+    float frac = (float)i / (float)(numPts - 1);
+    int px = (int)(frac * splitX);
+    float py = (float)midY + m_wave_amp * sinf((float)px * 0.23f - m_wave_phase);
+    m_wave_pts[i].x = (lv_coord_t)px;
+    m_wave_pts[i].y = (lv_coord_t)lroundf(py);
+  }
+  lv_line_set_points(m_wave_active, m_wave_pts, numPts);
+
+  // Straight remaining track (splitX + 4 .. totalW)
+  m_rest_pts[0].x = (lv_coord_t)min(totalW, splitX + 4);
+  m_rest_pts[0].y = midY;
+  m_rest_pts[1].x = totalW;
+  m_rest_pts[1].y = midY;
+  lv_line_set_points(m_wave_rest, m_rest_pts, 2);
+
+  // Expressive vertical thumb pill
+  lv_obj_set_pos(m_wave_thumb, splitX - 2, 2);
+}
+
 static void build_media_screen() {
   scr_media = lv_obj_create(nullptr);
   style_screen(scr_media);
@@ -247,14 +312,33 @@ static void build_media_screen() {
   lv_label_set_text(m_lbl_artist, "Run rotary_daemon.py");
   lv_obj_align(m_lbl_artist, LV_ALIGN_CENTER, 0, -30);
 
-  // Playback progress bar
-  m_bar_prog = lv_bar_create(scr_media);
-  lv_obj_set_size(m_bar_prog, 196, 6);
-  lv_bar_set_range(m_bar_prog, 0, 100);
-  lv_bar_set_value(m_bar_prog, 0, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(m_bar_prog, lv_color_hex(0x1E293B), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(m_bar_prog, lv_color_hex(COL_CYAN), LV_PART_INDICATOR);
-  lv_obj_align(m_bar_prog, LV_ALIGN_CENTER, 0, 0);
+  // Material 3 Expressive wavy playback timeline
+  m_wave_box = lv_obj_create(scr_media);
+  lv_obj_set_size(m_wave_box, 200, 18);
+  lv_obj_set_style_bg_opa(m_wave_box, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(m_wave_box, 0, 0);
+  lv_obj_set_style_pad_all(m_wave_box, 0, 0);
+  lv_obj_clear_flag(m_wave_box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(m_wave_box, LV_ALIGN_CENTER, 0, 0);
+
+  m_wave_rest = lv_line_create(m_wave_box);
+  lv_obj_set_style_line_width(m_wave_rest, 3, 0);
+  lv_obj_set_style_line_color(m_wave_rest, lv_color_hex(0x334155), 0);
+  lv_obj_set_style_line_rounded(m_wave_rest, true, 0);
+
+  m_wave_active = lv_line_create(m_wave_box);
+  lv_obj_set_style_line_width(m_wave_active, 4, 0);
+  lv_obj_set_style_line_color(m_wave_active, lv_color_hex(COL_CYAN), 0);
+  lv_obj_set_style_line_rounded(m_wave_active, true, 0);
+
+  m_wave_thumb = lv_obj_create(m_wave_box);
+  lv_obj_set_size(m_wave_thumb, 4, 14);
+  lv_obj_set_style_radius(m_wave_thumb, 2, 0);
+  lv_obj_set_style_border_width(m_wave_thumb, 0, 0);
+  lv_obj_set_style_bg_color(m_wave_thumb, lv_color_hex(COL_TEXT), 0);
+  lv_obj_clear_flag(m_wave_thumb, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_timer_create(media_wave_timer_cb, 40, nullptr);
 
   // Media control buttons: Prev, Play/Pause, Next
   lv_obj_t *btn_prev = lv_btn_create(scr_media);
@@ -580,19 +664,31 @@ void ui_update_volume_local(int vol, bool muted) {
     lv_obj_set_style_arc_color(m_arc_vol, lv_color_hex(COL_MUTED), LV_PART_INDICATOR);
   } else {
     lv_label_set_text_fmt(m_lbl_vol, "VOL %d%%", vol);
-    lv_obj_set_style_arc_color(m_arc_vol, lv_color_hex(COL_CYAN), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(m_arc_vol, lv_color_hex(m_accent_hex), LV_PART_INDICATOR);
   }
 }
 
 void ui_update_media(const MediaInfo &info) {
+  m_media_playing = info.playing;
+  m_media_progress = constrain(info.progress, 0, 100);
+  if (info.accentR || info.accentG || info.accentB) {
+    m_accent_hex = brighten_hex(info.accentR, info.accentG, info.accentB);
+  } else {
+    m_accent_hex = COL_CYAN;
+  }
+
   String appUpper = info.app.length() ? info.app : "MAC MEDIA";
   appUpper.toUpperCase();
   lv_label_set_text(m_lbl_app, appUpper.c_str());
-  lv_obj_set_style_text_color(m_lbl_app, lv_color_hex(info.playing ? COL_CYAN : COL_SUBTEXT), 0);
+  lv_obj_set_style_text_color(m_lbl_app, lv_color_hex(info.playing ? m_accent_hex : COL_SUBTEXT), 0);
 
   lv_label_set_text(m_lbl_title, info.title.length() ? info.title.c_str() : "Nothing Playing");
   lv_label_set_text(m_lbl_artist, info.artist.length() ? info.artist.c_str() : "macOS Now Playing");
-  lv_bar_set_value(m_bar_prog, constrain(info.progress, 0, 100), LV_ANIM_OFF);
+
+  // Dynamic M3 Expressive theming + Play/Pause shape morph (squircle when playing, circle when paused)
+  lv_obj_set_style_line_color(m_wave_active, lv_color_hex(m_accent_hex), 0);
+  lv_obj_set_style_bg_color(m_btn_play, lv_color_hex(m_accent_hex), 0);
+  lv_obj_set_style_radius(m_btn_play, info.playing ? 22 : LV_RADIUS_CIRCLE, 0);
   lv_label_set_text(m_lbl_play, info.playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
   ui_update_volume_local(info.volume, info.muted);
 }

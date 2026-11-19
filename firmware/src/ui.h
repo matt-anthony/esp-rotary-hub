@@ -31,6 +31,9 @@ struct MediaInfo {
   int volume;    // 0..100
   bool muted;
   int progress;  // 0..100
+  uint8_t accentR;
+  uint8_t accentG;
+  uint8_t accentB;
 };
 
 struct AgentInfo {
