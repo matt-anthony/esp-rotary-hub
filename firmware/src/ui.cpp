@@ -88,6 +88,13 @@ static void on_agent_pill_click(lv_event_t *e) {
   }
 }
 
+static void on_media_btn_click(lv_event_t *e) {
+  (void)e;
+  if (current_view == VIEW_AGENT) {
+    ui_toggle_main_view();
+  }
+}
+
 static void on_approval_btn_click(lv_event_t *e) {
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   active_approval.selectedOption = idx;
@@ -154,22 +161,21 @@ static void build_media_screen() {
   lv_obj_set_style_text_color(m_lbl_app, lv_color_hex(COL_CYAN), 0);
   lv_obj_align(m_lbl_app, LV_ALIGN_TOP_MID, 0, 40);
 
-  // Compact live coding-agent status pill (shown when an agent is active)
+  // Compact live coding-agent status pill (always tappable to switch to Agent view)
   m_btn_agent_pill = lv_btn_create(scr_media);
   lv_obj_set_size(m_btn_agent_pill, 148, 24);
   lv_obj_set_style_radius(m_btn_agent_pill, 12, 0);
   lv_obj_set_style_bg_color(m_btn_agent_pill, lv_color_hex(COL_CARD), 0);
   lv_obj_set_style_bg_opa(m_btn_agent_pill, LV_OPA_80, 0);
   lv_obj_set_style_border_width(m_btn_agent_pill, 1, 0);
-  lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(COL_BLUE), 0);
+  lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(COL_MUTED), 0);
   lv_obj_align(m_btn_agent_pill, LV_ALIGN_TOP_MID, 0, 64);
   lv_obj_add_event_cb(m_btn_agent_pill, on_agent_pill_click, LV_EVENT_CLICKED, nullptr);
-  lv_obj_add_flag(m_btn_agent_pill, LV_OBJ_FLAG_HIDDEN);
 
   m_lbl_agent_pill = lv_label_create(m_btn_agent_pill);
-  lv_label_set_text(m_lbl_agent_pill, "AGENT READY");
+  lv_label_set_text(m_lbl_agent_pill, "AGENT: IDLE");
   lv_obj_set_style_text_font(m_lbl_agent_pill, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(m_lbl_agent_pill, lv_color_hex(COL_TEXT), 0);
+  lv_obj_set_style_text_color(m_lbl_agent_pill, lv_color_hex(COL_SUBTEXT), 0);
   lv_obj_center(m_lbl_agent_pill);
 
   // Track title (scrolling marquee)
@@ -295,16 +301,30 @@ static void build_agent_screen() {
   lv_label_set_text(a_lbl_detail, "Swipe or long-press for Media");
   lv_obj_align(a_lbl_detail, LV_ALIGN_CENTER, 0, 42);
 
+  lv_obj_t *btn_media = lv_btn_create(scr_agent);
+  lv_obj_set_size(btn_media, 84, 38);
+  lv_obj_set_style_radius(btn_media, 19, 0);
+  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_border_width(btn_media, 2, 0);
+  lv_obj_set_style_border_color(btn_media, lv_color_hex(COL_CYAN), 0);
+  lv_obj_align(btn_media, LV_ALIGN_BOTTOM_MID, -46, -54);
+  lv_obj_add_event_cb(btn_media, on_media_btn_click, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t *lbl_media = lv_label_create(btn_media);
+  lv_label_set_text(lbl_media, "MEDIA");
+  lv_obj_set_style_text_font(lbl_media, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl_media, lv_color_hex(COL_CYAN), 0);
+  lv_obj_center(lbl_media);
+
   lv_obj_t *btn_focus = lv_btn_create(scr_agent);
-  lv_obj_set_size(btn_focus, 132, 40);
-  lv_obj_set_style_radius(btn_focus, 20, 0);
+  lv_obj_set_size(btn_focus, 84, 38);
+  lv_obj_set_style_radius(btn_focus, 19, 0);
   lv_obj_set_style_bg_color(btn_focus, lv_color_hex(COL_CARD), 0);
   lv_obj_set_style_border_width(btn_focus, 2, 0);
   lv_obj_set_style_border_color(btn_focus, lv_color_hex(COL_BLUE), 0);
-  lv_obj_align(btn_focus, LV_ALIGN_BOTTOM_MID, 0, -48);
+  lv_obj_align(btn_focus, LV_ALIGN_BOTTOM_MID, 46, -54);
   lv_obj_add_event_cb(btn_focus, on_focus_click, LV_EVENT_CLICKED, nullptr);
   lv_obj_t *lbl_focus = lv_label_create(btn_focus);
-  lv_label_set_text(lbl_focus, "FOCUS IDE");
+  lv_label_set_text(lbl_focus, "FOCUS");
   lv_obj_set_style_text_font(lbl_focus, &lv_font_montserrat_14, 0);
   lv_obj_center(lbl_focus);
 }
@@ -448,22 +468,17 @@ void ui_update_agent(const AgentInfo &info) {
   lv_label_set_text(a_lbl_detail, info.detail.c_str());
 
   // Update the compact status pill on the Media screen so coding updates are
-  // always visible even while watching Now Playing.
+  // always visible and tappable even while watching Now Playing.
   if (m_btn_agent_pill && m_lbl_agent_pill) {
-    if (info.state == AGENT_IDLE && info.title == "Connected") {
-      lv_obj_add_flag(m_btn_agent_pill, LV_OBJ_FLAG_HIDDEN);
-    } else {
-      String shortPlat = active_platform;
-      if (shortPlat == "antigravity") shortPlat = "AGY";
-      else if (shortPlat == "claude-code") shortPlat = "CLAUDE";
-      else shortPlat.toUpperCase();
+    String shortPlat = active_platform;
+    if (shortPlat == "antigravity") shortPlat = "AGY";
+    else if (shortPlat == "claude-code") shortPlat = "CLAUDE";
+    else shortPlat.toUpperCase();
 
-      String pillTxt = shortPlat + ": " + String(stateTxt);
-      lv_label_set_text(m_lbl_agent_pill, pillTxt.c_str());
-      lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(col), 0);
-      lv_obj_set_style_text_color(m_lbl_agent_pill, lv_color_hex(col), 0);
-      lv_obj_clear_flag(m_btn_agent_pill, LV_OBJ_FLAG_HIDDEN);
-    }
+    String pillTxt = shortPlat + ": " + String(stateTxt);
+    lv_label_set_text(m_lbl_agent_pill, pillTxt.c_str());
+    lv_obj_set_style_border_color(m_btn_agent_pill, lv_color_hex(col), 0);
+    lv_obj_set_style_text_color(m_lbl_agent_pill, lv_color_hex(col), 0);
   }
 
   // Auto-surface the Agent screen on actionable states (done, error, waiting)

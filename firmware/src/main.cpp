@@ -150,7 +150,7 @@ static void my_touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
       int dx = lastX - startX;
       int dy = lastY - startY;
       if (gesture == GESTURE_SLIDE_LEFT || gesture == GESTURE_SLIDE_RIGHT ||
-          (abs(dx) >= 56 && abs(dx) > abs(dy) * 2)) {
+          (abs(dx) >= 30 && abs(dx) > abs(dy))) {
         swiped = true;
         pendingSwipeToggle = true;
       }
@@ -363,7 +363,8 @@ static void pollEncoderAndButton() {
       if (clicks == 1) sendMediaCmd("toggle");
       else             sendMediaCmd("next");
     } else {
-      sendFocusIde(ui_get_active_platform());
+      if (clicks == 1) sendFocusIde(ui_get_active_platform());
+      else             ui_toggle_main_view();
     }
   }
 }
