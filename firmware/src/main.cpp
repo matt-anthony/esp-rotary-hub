@@ -46,6 +46,7 @@ static bool currentMuted = false;
 static bool mediaPlaying = false;
 static uint8_t mediaAccentR = 0, mediaAccentG = 210, mediaAccentB = 240;
 static unsigned long lastHostMsgAt = 0;
+static unsigned long rainbowUntilMs = 0;
 static String serialRxBuf;
 
 // Offset-based Base64 album-art staging buffer (atomic swap on "ae")
@@ -191,6 +192,21 @@ static void initBacklight(uint8_t pct) {
 
 static void updateAmbientLeds() {
   static uint8_t prevR = 255, prevG = 255, prevB = 255;
+  static unsigned long lastRainbowMs = 0;
+
+  unsigned long now = millis();
+  if (now < rainbowUntilMs) {
+    if (now - lastRainbowMs < 25) return;
+    lastRainbowMs = now;
+    for (int i = 0; i < LED_NUM; i++) {
+      uint16_t hue = (uint16_t)((now * 42UL + (unsigned long)i * (65536UL / LED_NUM)) & 0xFFFF);
+      uint32_t c = leds.gamma32(leds.ColorHSV(hue, 235, 55));
+      leds.setPixelColor(i, c);
+    }
+    leds.show();
+    prevR = prevG = prevB = 255;  // Force static redraw once rainbow finishes
+    return;
+  }
 
   uint8_t r = 0, g = 0, b = 0;
   if (ui_is_approval_active()) {
@@ -228,7 +244,11 @@ static void handleSerialLine(const String &line) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) return;
 
+  bool wasDisconnected = (lastHostMsgAt == 0);
   lastHostMsgAt = millis();
+  if (wasDisconnected) {
+    rainbowUntilMs = lastHostMsgAt + 2000;
+  }
   const char *type = doc["t"] | "";
 
   if (strcmp(type, "media") == 0) {
@@ -458,6 +478,7 @@ void setup() {
   ui_init(sendMediaCmd, sendApprovalDecision, sendFocusIde, sendBlenderCmd);
   artStageBuf = (uint8_t *)ps_malloc(ART_BYTES);
   initBacklight(75);
+  rainbowUntilMs = millis() + 2400;
 
   JsonDocument hello;
   hello["e"] = "hello";
