@@ -4,6 +4,7 @@ Turns your USB-connected **IDEAQUX / Elecrow CrowPanel 1.46" HMI ESP32-S3 Rotary
 
 1. **macOS "Now Playing" Media & Volume Controller** — live track title, artist, source app, progress bar, circular volume arc, Play/Pause, Next/Prev, and system volume synced with macOS via [`media-control`](https://github.com/ungive/media-control).
 2. **Universal Coding-Agent Notification & Interactive Approval Knob** — real-time status & **Approve / Deny / Focus IDE** prompts for **Antigravity**, **Claude Code (VS Code / CLI)**, and any other tool via a local HTTP bridge (`http://127.0.0.1:48912`).
+3. **Blender 3D Viewport Navigator** — touch-drag & rotary-dial **Orbit/Tilt**, **Pan**, **Zoom**, and **Frame Selected** (`Numpad .`) over native macOS CoreGraphics events (no Blender add-on required).
 
 ---
 
@@ -11,11 +12,16 @@ Turns your USB-connected **IDEAQUX / Elecrow CrowPanel 1.46" HMI ESP32-S3 Rotary
 
 | View | Action | Behavior |
 | :--- | :--- | :--- |
-| **Any Main View** | **Swipe Left / Right** or **Long-press knob (0.6s)** | Switch between **Media** and **Agent** views |
+| **Any Main View** | **Swipe Left / Right** or **Long-press knob (0.55s)** | Cycle **Media** → **Agent** → **Blender 3D** |
 | **Media View** | **Rotate knob** | Adjust macOS system volume (±3% per detent) |
 | **Media View** | **Single click** (or tap center button) | Play / Pause |
 | **Media View** | **Double click** (or tap `>` / `<`) | Next / Previous track |
-| **Agent View** | **Single click** (or tap `FOCUS IDE`) | Bring Antigravity or VS Code to the foreground |
+| **Agent View** | **Single click** (or tap `FOCUS`) | Bring Antigravity or VS Code to the foreground |
+| **Agent View** | **Double click** (or tap `MEDIA`) | Return to Media view |
+| **Blender 3D View** | **Drag center pad** | 2D **Orbit/Tilt**, **Pan**, or **Zoom** in Blender's viewport |
+| **Blender 3D View** | **Rotate knob** | Turntable orbit, horizontal pan, or smooth zoom (matches active mode) |
+| **Blender 3D View** | **Single click** (or tap `ORBIT`/`PAN`/`ZOOM`) | Cycle navigation mode |
+| **Blender 3D View** | **Double click** | Frame Selected (`Numpad .`) |
 | **Approval Popup** | **Rotate knob** | Cycle between **ALLOW**, **DENY**, and **IDE** (focus & ask in IDE) |
 | **Approval Popup** | **Single click** (or tap pill directly) | Send decision immediately back to the coding agent |
 

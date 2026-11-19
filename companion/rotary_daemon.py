@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 import glob
 import hashlib
 import http.server
@@ -212,6 +213,176 @@ def focus_mac_app(platform: str) -> None:
         pass
 
 
+class _CGPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+
+class MacBlenderController:
+    """Synthesizes macOS Middle-Mouse Orbit/Pan, Scroll Zoom, and Numpad-. Frame."""
+
+    kCGHIDEventTap = 0
+    kCGMouseButtonCenter = 2
+    kCGEventOtherMouseDown = 25
+    kCGEventOtherMouseUp = 26
+    kCGEventOtherMouseDragged = 27
+    kCGScrollEventUnitPixel = 0
+    kCGEventFlagMaskShift = 0x00020000
+    kVK_ANSI_KeypadDecimal = 0x41
+
+    def __init__(self) -> None:
+        self.cg = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        )
+        self.cf = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+        )
+
+        self.cg.CGEventCreate.argtypes = [ctypes.c_void_p]
+        self.cg.CGEventCreate.restype = ctypes.c_void_p
+        self.cg.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+        self.cg.CGEventGetLocation.restype = _CGPoint
+        self.cg.CGEventCreateMouseEvent.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            _CGPoint,
+            ctypes.c_uint32,
+        ]
+        self.cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+        self.cg.CGEventCreateScrollWheelEvent.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_int32,
+        ]
+        self.cg.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
+        self.cg.CGEventCreateKeyboardEvent.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint16,
+            ctypes.c_bool,
+        ]
+        self.cg.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+        self.cg.CGEventSetFlags.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+        self.cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        self.cf.CFRelease.argtypes = [ctypes.c_void_p]
+
+        self.lock = threading.Lock()
+        self.dragging = False
+        self.drag_mode = "orbit"
+        self.origin = _CGPoint(0.0, 0.0)
+        self.cur = _CGPoint(0.0, 0.0)
+        self.release_timer: Optional[threading.Timer] = None
+
+    def _cursor_pos(self) -> _CGPoint:
+        ev = self.cg.CGEventCreate(None)
+        pt = self.cg.CGEventGetLocation(ev)
+        self.cf.CFRelease(ev)
+        return pt
+
+    def _post_mouse(self, ev_type: int, pt: _CGPoint, shift: bool = False) -> None:
+        ev = self.cg.CGEventCreateMouseEvent(
+            None, ev_type, pt, self.kCGMouseButtonCenter
+        )
+        if shift:
+            self.cg.CGEventSetFlags(ev, self.kCGEventFlagMaskShift)
+        self.cg.CGEventPost(self.kCGHIDEventTap, ev)
+        self.cf.CFRelease(ev)
+
+    def _post_scroll(self, delta_px: int) -> None:
+        ev = self.cg.CGEventCreateScrollWheelEvent(
+            None, self.kCGScrollEventUnitPixel, 1, int(delta_px)
+        )
+        self.cg.CGEventPost(self.kCGHIDEventTap, ev)
+        self.cf.CFRelease(ev)
+
+    def _post_frame_selected(self) -> None:
+        for down in (True, False):
+            ev = self.cg.CGEventCreateKeyboardEvent(
+                None, self.kVK_ANSI_KeypadDecimal, down
+            )
+            self.cg.CGEventPost(self.kCGHIDEventTap, ev)
+            self.cf.CFRelease(ev)
+
+    def end_drag(self) -> None:
+        with self.lock:
+            if self.release_timer:
+                self.release_timer.cancel()
+                self.release_timer = None
+            if self.dragging:
+                self._post_mouse(
+                    self.kCGEventOtherMouseUp,
+                    self.cur,
+                    shift=(self.drag_mode == "pan"),
+                )
+                self.dragging = False
+
+    def handle(self, act: str, mode: str, dx: int, dy: int) -> None:
+        if act == "frame":
+            self.end_drag()
+            self._post_frame_selected()
+            return
+
+        if act == "end":
+            self.end_drag()
+            return
+
+        if mode == "zoom":
+            # Touchpad Y-drag or dial detent -> smooth zoom scroll
+            delta = (dx * 28) if act == "dial" else (-dy * 4)
+            if delta != 0:
+                self._post_scroll(delta)
+            return
+
+        if act == "dial":
+            # Single-detent turntable orbit or horizontal pan
+            step_x = dx * 22
+            pt = self._cursor_pos()
+            shift = mode == "pan"
+            self._post_mouse(self.kCGEventOtherMouseDown, pt, shift=shift)
+            time.sleep(0.004)
+            self._post_mouse(
+                self.kCGEventOtherMouseDragged,
+                _CGPoint(pt.x + step_x, pt.y),
+                shift=shift,
+            )
+            time.sleep(0.004)
+            self._post_mouse(
+                self.kCGEventOtherMouseUp,
+                _CGPoint(pt.x + step_x, pt.y),
+                shift=shift,
+            )
+            return
+
+        if act == "drag":
+            with self.lock:
+                shift = mode == "pan"
+                if not self.dragging or self.drag_mode != mode:
+                    if self.dragging:
+                        self._post_mouse(
+                            self.kCGEventOtherMouseUp,
+                            self.cur,
+                            shift=(self.drag_mode == "pan"),
+                        )
+                    self.origin = self._cursor_pos()
+                    self.cur = _CGPoint(self.origin.x, self.origin.y)
+                    self.drag_mode = mode
+                    self.dragging = True
+                    self._post_mouse(
+                        self.kCGEventOtherMouseDown, self.cur, shift=shift
+                    )
+
+                scale = 2.4
+                self.cur = _CGPoint(self.cur.x + dx * scale, self.cur.y + dy * scale)
+                self._post_mouse(
+                    self.kCGEventOtherMouseDragged, self.cur, shift=shift
+                )
+
+                if self.release_timer:
+                    self.release_timer.cancel()
+                self.release_timer = threading.Timer(0.35, self.end_drag)
+                self.release_timer.daemon = True
+                self.release_timer.start()
+
+
 def find_crowpanel_port(explicit_port: Optional[str] = None) -> Optional[str]:
     if explicit_port:
         return explicit_port
@@ -254,6 +425,7 @@ class RotaryHubDaemon:
 
         self.approvals_lock = threading.Lock()
         self.pending_approvals: Dict[str, PendingApproval] = {}
+        self.blender = MacBlenderController()
 
     def send_json(self, payload: Dict[str, Any]) -> bool:
         line = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
@@ -374,6 +546,13 @@ class RotaryHubDaemon:
             plat = str(msg.get("platform", "antigravity"))
             print(f"[agent] focus platform={plat}")
             focus_mac_app(plat)
+        elif ev == "blender":
+            self.blender.handle(
+                act=str(msg.get("act", "drag")),
+                mode=str(msg.get("mode", "orbit")),
+                dx=int(msg.get("dx", 0)),
+                dy=int(msg.get("dy", 0)),
+            )
         elif ev == "approve":
             req_id = str(msg.get("id", ""))
             decision = str(msg.get("decision", "ask"))

@@ -114,6 +114,16 @@ static void sendFocusIde(const char *platform) {
   sendEventJson(doc);
 }
 
+static void sendBlenderCmd(const char *act, const char *mode, int dx, int dy) {
+  JsonDocument doc;
+  doc["e"] = "blender";
+  doc["act"] = act;
+  doc["mode"] = mode;
+  doc["dx"] = dx;
+  doc["dy"] = dy;
+  sendEventJson(doc);
+}
+
 static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
@@ -146,7 +156,12 @@ static void my_touchpad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
     lastX = tx;
     lastY = ty;
 
-    if (!swiped && !ui_is_approval_active()) {
+    bool swipeAllowed = !ui_is_approval_active();
+    if (ui_get_current_view() == VIEW_BLENDER && startY >= 85 && startY <= 275) {
+      swipeAllowed = false;  // Reserve center pad for 3D drag
+    }
+
+    if (!swiped && swipeAllowed) {
       int dx = lastX - startX;
       int dy = lastY - startY;
       if (gesture == GESTURE_SLIDE_LEFT || gesture == GESTURE_SLIDE_RIGHT ||
@@ -187,6 +202,8 @@ static void updateAmbientLeds() {
     r = 0; g = 14; b = 32;
   } else if (ui_get_agent_state() == AGENT_DONE && ui_get_current_view() == VIEW_AGENT) {
     r = 0; g = 28; b = 8;
+  } else if (ui_get_current_view() == VIEW_BLENDER) {
+    r = 38; g = 14; b = 0;  // Blender orange
   } else if (mediaPlaying) {
     const float scale = 0.14f;
     r = (uint8_t)(mediaAccentR * scale);
@@ -317,10 +334,9 @@ static void pollEncoderAndButton() {
   if (detents != 0) {
     if (ui_is_approval_active()) {
       ui_approval_move_selection(detents > 0 ? 1 : -1);
-    } else if (ui_get_current_view() == VIEW_MEDIA) {
-      sendVolumeDelta((int)detents);
+    } else if (ui_get_current_view() == VIEW_BLENDER) {
+      sendBlenderCmd("dial", ui_get_blender_mode_str(), (int)detents, 0);
     } else {
-      // On Agent view, turning knob also adjusts volume smoothly
       sendVolumeDelta((int)detents);
     }
   }
@@ -362,6 +378,9 @@ static void pollEncoderAndButton() {
     } else if (ui_get_current_view() == VIEW_MEDIA) {
       if (clicks == 1) sendMediaCmd("toggle");
       else             sendMediaCmd("next");
+    } else if (ui_get_current_view() == VIEW_BLENDER) {
+      if (clicks == 1) ui_blender_cycle_mode();
+      else             sendBlenderCmd("frame", ui_get_blender_mode_str(), 0, 0);
     } else {
       if (clicks == 1) sendFocusIde(ui_get_active_platform());
       else             ui_toggle_main_view();
@@ -433,7 +452,7 @@ void setup() {
   indev_drv.read_cb = my_touchpad_read;
   lv_indev_drv_register(&indev_drv);
 
-  ui_init(sendMediaCmd, sendApprovalDecision, sendFocusIde);
+  ui_init(sendMediaCmd, sendApprovalDecision, sendFocusIde, sendBlenderCmd);
   artStageBuf = (uint8_t *)ps_malloc(ART_BYTES);
   initBacklight(75);
 

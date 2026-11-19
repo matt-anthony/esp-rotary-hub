@@ -6,7 +6,14 @@
 enum UiView : uint8_t {
   VIEW_MEDIA = 0,
   VIEW_AGENT = 1,
-  VIEW_APPROVAL = 2
+  VIEW_BLENDER = 2,
+  VIEW_APPROVAL = 3
+};
+
+enum BlenderMode : uint8_t {
+  BLENDER_ORBIT = 0,
+  BLENDER_PAN   = 1,
+  BLENDER_ZOOM  = 2
 };
 
 enum AgentState : uint8_t {
@@ -47,12 +54,13 @@ struct ApprovalRequest {
 typedef void (*UiMediaCmdCb)(const char *cmd);
 typedef void (*UiApprovalDecisionCb)(const char *id, const char *decision);
 typedef void (*UiFocusIdeCb)(const char *platform);
+typedef void (*UiBlenderCb)(const char *act, const char *mode, int dx, int dy);
 
 #define ART_WIDTH  120
 #define ART_HEIGHT 120
 #define ART_BYTES  (ART_WIDTH * ART_HEIGHT * 2)
 
-void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb);
+void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb, UiBlenderCb blenderCb);
 void ui_set_connected(bool connected);
 void ui_update_media(const MediaInfo &info);
 void ui_update_volume_local(int vol, bool muted);
@@ -62,6 +70,10 @@ void ui_clear_approval();
 void ui_approval_move_selection(int delta);
 void ui_approval_confirm();
 void ui_toggle_main_view();
+void ui_blender_cycle_mode();
+void ui_blender_set_mode(BlenderMode mode);
+BlenderMode ui_get_blender_mode();
+const char *ui_get_blender_mode_str();
 uint8_t *ui_get_art_buffer();
 void ui_commit_art();
 void ui_clear_art();

@@ -2,6 +2,7 @@
 
 static lv_obj_t *scr_media = nullptr;
 static lv_obj_t *scr_agent = nullptr;
+static lv_obj_t *scr_blender = nullptr;
 static lv_obj_t *scr_approval = nullptr;
 
 // Media screen widgets (360x360 circular layout)
@@ -33,6 +34,13 @@ static lv_obj_t *p_lbl_tool = nullptr;
 static lv_obj_t *p_lbl_detail = nullptr;
 static lv_obj_t *p_btns[3] = {nullptr, nullptr, nullptr};
 
+// Blender 3D navigation widgets
+static lv_obj_t *b_arc_ring = nullptr;
+static lv_obj_t *b_pad = nullptr;
+static lv_obj_t *b_lbl_pad = nullptr;
+static lv_obj_t *b_mode_btns[3] = {nullptr, nullptr, nullptr};
+static BlenderMode current_blender_mode = BLENDER_ORBIT;
+
 static UiView current_view = VIEW_MEDIA;
 static UiView prev_main_view = VIEW_MEDIA;
 static AgentState current_agent_state = AGENT_IDLE;
@@ -42,6 +50,7 @@ static ApprovalRequest active_approval = {false, "", "", "", "", 0};
 static UiMediaCmdCb cb_media = nullptr;
 static UiApprovalDecisionCb cb_approval = nullptr;
 static UiFocusIdeCb cb_focus = nullptr;
+static UiBlenderCb cb_blender = nullptr;
 
 // Color palette
 static const uint32_t COL_BG      = 0x0B0E14;
@@ -90,8 +99,48 @@ static void on_agent_pill_click(lv_event_t *e) {
 
 static void on_media_btn_click(lv_event_t *e) {
   (void)e;
-  if (current_view == VIEW_AGENT) {
-    ui_toggle_main_view();
+  if (current_view == VIEW_AGENT || current_view == VIEW_BLENDER) {
+    current_view = VIEW_MEDIA;
+    prev_main_view = VIEW_MEDIA;
+    lv_scr_load_anim(scr_media, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 160, 0, false);
+  }
+}
+
+static void on_blender_mode_click(lv_event_t *e) {
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  ui_blender_set_mode((BlenderMode)idx);
+}
+
+static void on_blender_pad_event(lv_event_t *e) {
+  static bool dragging = false;
+  static lv_point_t lastPt = {0, 0};
+  static unsigned long lastSendMs = 0;
+
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_indev_t *indev = lv_indev_get_act();
+  if (!indev) return;
+
+  lv_point_t pt;
+  lv_indev_get_point(indev, &pt);
+
+  if (code == LV_EVENT_PRESSED) {
+    dragging = true;
+    lastPt = pt;
+    lastSendMs = millis();
+  } else if (code == LV_EVENT_PRESSING && dragging) {
+    unsigned long now = millis();
+    int dx = pt.x - lastPt.x;
+    int dy = pt.y - lastPt.y;
+    if ((abs(dx) >= 2 || abs(dy) >= 2) && (now - lastSendMs >= 28)) {
+      lastPt = pt;
+      lastSendMs = now;
+      if (cb_blender) cb_blender("drag", ui_get_blender_mode_str(), dx, dy);
+    }
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    if (dragging) {
+      dragging = false;
+      if (cb_blender) cb_blender("end", ui_get_blender_mode_str(), 0, 0);
+    }
   }
 }
 
@@ -395,13 +444,126 @@ static void build_approval_screen() {
   update_approval_selection_styles();
 }
 
-void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb) {
+static void update_blender_mode_styles() {
+  const uint32_t cols[3] = {COL_CYAN, COL_AMBER, COL_GREEN};
+  const char *hints[3] = {"DRAG: ORBIT / TILT\nDIAL: TURNTABLE", "DRAG: PAN 2D\nDIAL: PAN X", "DRAG: ZOOM\nDIAL: ZOOM IN/OUT"};
+  for (int i = 0; i < 3; i++) {
+    if (!b_mode_btns[i]) continue;
+    if (i == (int)current_blender_mode) {
+      lv_obj_set_style_bg_color(b_mode_btns[i], lv_color_hex(cols[i]), 0);
+      lv_obj_set_style_bg_opa(b_mode_btns[i], LV_OPA_COVER, 0);
+      lv_obj_set_style_border_width(b_mode_btns[i], 2, 0);
+      lv_obj_set_style_border_color(b_mode_btns[i], lv_color_hex(0xFFFFFF), 0);
+      lv_obj_t *lbl = lv_obj_get_child(b_mode_btns[i], 0);
+      if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(COL_BG), 0);
+    } else {
+      lv_obj_set_style_bg_color(b_mode_btns[i], lv_color_hex(COL_CARD), 0);
+      lv_obj_set_style_bg_opa(b_mode_btns[i], LV_OPA_80, 0);
+      lv_obj_set_style_border_width(b_mode_btns[i], 1, 0);
+      lv_obj_set_style_border_color(b_mode_btns[i], lv_color_hex(cols[i]), 0);
+      lv_obj_t *lbl = lv_obj_get_child(b_mode_btns[i], 0);
+      if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(COL_TEXT), 0);
+    }
+  }
+  if (b_arc_ring) {
+    lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(cols[current_blender_mode]), LV_PART_INDICATOR);
+  }
+  if (b_lbl_pad) {
+    lv_label_set_text(b_lbl_pad, hints[current_blender_mode]);
+  }
+}
+
+static void build_blender_screen() {
+  scr_blender = lv_obj_create(nullptr);
+  style_screen(scr_blender);
+
+  b_arc_ring = lv_arc_create(scr_blender);
+  lv_obj_set_size(b_arc_ring, 344, 344);
+  lv_obj_center(b_arc_ring);
+  lv_arc_set_bg_angles(b_arc_ring, 0, 360);
+  lv_arc_set_value(b_arc_ring, 100);
+  lv_obj_remove_style(b_arc_ring, nullptr, LV_PART_KNOB);
+  lv_obj_clear_flag(b_arc_ring, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_arc_width(b_arc_ring, 8, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(b_arc_ring, 8, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(0x1E293B), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(b_arc_ring, lv_color_hex(COL_CYAN), LV_PART_INDICATOR);
+
+  lv_obj_t *lbl_hdr = lv_label_create(scr_blender);
+  lv_label_set_text(lbl_hdr, "BLENDER 3D");
+  lv_obj_set_style_text_font(lbl_hdr, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(lbl_hdr, lv_color_hex(0xF97316), 0);
+  lv_obj_align(lbl_hdr, LV_ALIGN_TOP_MID, 0, 34);
+
+  lv_obj_t *btn_media = lv_btn_create(scr_blender);
+  lv_obj_set_size(btn_media, 112, 22);
+  lv_obj_set_style_radius(btn_media, 11, 0);
+  lv_obj_set_style_bg_color(btn_media, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_border_width(btn_media, 1, 0);
+  lv_obj_set_style_border_color(btn_media, lv_color_hex(COL_MUTED), 0);
+  lv_obj_align(btn_media, LV_ALIGN_TOP_MID, 0, 56);
+  lv_obj_add_event_cb(btn_media, on_media_btn_click, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t *lbl_m = lv_label_create(btn_media);
+  lv_label_set_text(lbl_m, "BACK TO MEDIA");
+  lv_obj_set_style_text_font(lbl_m, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_m, lv_color_hex(COL_SUBTEXT), 0);
+  lv_obj_center(lbl_m);
+
+  // Center circular-safe touchpad zone
+  b_pad = lv_obj_create(scr_blender);
+  lv_obj_set_size(b_pad, 218, 134);
+  lv_obj_set_style_radius(b_pad, 28, 0);
+  lv_obj_set_style_bg_color(b_pad, lv_color_hex(COL_CARD), 0);
+  lv_obj_set_style_border_width(b_pad, 1, 0);
+  lv_obj_set_style_border_color(b_pad, lv_color_hex(0x334155), 0);
+  lv_obj_clear_flag(b_pad, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_align(b_pad, LV_ALIGN_CENTER, 0, -10);
+  lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESSED, nullptr);
+  lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESSING, nullptr);
+  lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_RELEASED, nullptr);
+  lv_obj_add_event_cb(b_pad, on_blender_pad_event, LV_EVENT_PRESS_LOST, nullptr);
+
+  b_lbl_pad = lv_label_create(b_pad);
+  lv_obj_set_style_text_align(b_lbl_pad, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(b_lbl_pad, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(b_lbl_pad, lv_color_hex(COL_SUBTEXT), 0);
+  lv_obj_center(b_lbl_pad);
+
+  // Mode selector pills: ORBIT | PAN | ZOOM
+  const char *mlbls[3] = {"ORBIT", "PAN", "ZOOM"};
+  const int xs[3] = {-70, 0, 70};
+  const int ws[3] = {68, 60, 68};
+  for (int i = 0; i < 3; i++) {
+    b_mode_btns[i] = lv_btn_create(scr_blender);
+    lv_obj_set_size(b_mode_btns[i], ws[i], 38);
+    lv_obj_set_style_radius(b_mode_btns[i], 19, 0);
+    lv_obj_align(b_mode_btns[i], LV_ALIGN_BOTTOM_MID, xs[i], -64);
+    lv_obj_add_event_cb(b_mode_btns[i], on_blender_mode_click, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+    lv_obj_t *lbl = lv_label_create(b_mode_btns[i]);
+    lv_label_set_text(lbl, mlbls[i]);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(lbl);
+  }
+
+  lv_obj_t *lbl_hint = lv_label_create(scr_blender);
+  lv_label_set_text(lbl_hint, "2X: FRAME");
+  lv_obj_set_style_text_font(lbl_hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_hint, lv_color_hex(COL_MUTED), 0);
+  lv_obj_align(lbl_hint, LV_ALIGN_BOTTOM_MID, 0, -36);
+
+  update_blender_mode_styles();
+}
+
+void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb, UiBlenderCb blenderCb) {
   cb_media = mediaCb;
   cb_approval = approvalCb;
   cb_focus = focusCb;
+  cb_blender = blenderCb;
 
   build_media_screen();
   build_agent_screen();
+  build_blender_screen();
   build_approval_screen();
 
   current_view = VIEW_MEDIA;
@@ -516,8 +678,10 @@ void ui_clear_approval() {
   active_approval.active = false;
   if (current_view == VIEW_APPROVAL) {
     current_view = prev_main_view;
-    lv_scr_load_anim(current_view == VIEW_MEDIA ? scr_media : scr_agent,
-                     LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, false);
+    lv_obj_t *target = scr_media;
+    if (current_view == VIEW_AGENT) target = scr_agent;
+    else if (current_view == VIEW_BLENDER) target = scr_blender;
+    lv_scr_load_anim(target, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, false);
   }
 }
 
@@ -544,10 +708,34 @@ void ui_toggle_main_view() {
     current_view = VIEW_AGENT;
     prev_main_view = VIEW_AGENT;
     lv_scr_load_anim(scr_agent, LV_SCR_LOAD_ANIM_MOVE_LEFT, 160, 0, false);
+  } else if (current_view == VIEW_AGENT) {
+    current_view = VIEW_BLENDER;
+    prev_main_view = VIEW_BLENDER;
+    lv_scr_load_anim(scr_blender, LV_SCR_LOAD_ANIM_MOVE_LEFT, 160, 0, false);
   } else {
     current_view = VIEW_MEDIA;
     prev_main_view = VIEW_MEDIA;
-    lv_scr_load_anim(scr_media, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 160, 0, false);
+    lv_scr_load_anim(scr_media, LV_SCR_LOAD_ANIM_MOVE_LEFT, 160, 0, false);
+  }
+}
+
+void ui_blender_set_mode(BlenderMode mode) {
+  current_blender_mode = mode;
+  update_blender_mode_styles();
+}
+
+void ui_blender_cycle_mode() {
+  current_blender_mode = (BlenderMode)(((int)current_blender_mode + 1) % 3);
+  update_blender_mode_styles();
+}
+
+BlenderMode ui_get_blender_mode() { return current_blender_mode; }
+
+const char *ui_get_blender_mode_str() {
+  switch (current_blender_mode) {
+    case BLENDER_PAN:  return "pan";
+    case BLENDER_ZOOM: return "zoom";
+    default:           return "orbit";
   }
 }
 
