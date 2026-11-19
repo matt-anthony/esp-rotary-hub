@@ -159,17 +159,19 @@ static void on_toast_click(lv_event_t *e) {
 }
 
 static void show_vol_hud(int vol, bool muted) {
-  if (!vol_hud_pill || !vol_hud_lbl) return;
+  vol_hud_hide_at = millis() + 1000;
+  if (m_arc_vol) {
+    lv_obj_set_style_arc_width(m_arc_vol, 14, LV_PART_INDICATOR);
+  }
+  // On Media view, m_lbl_vol + thickened arc already display volume in-place
+  if (current_view == VIEW_MEDIA || !vol_hud_pill || !vol_hud_lbl) return;
+
   if (muted) {
     lv_label_set_text(vol_hud_lbl, "MUTED");
     lv_obj_set_style_text_color(vol_hud_lbl, lv_color_hex(COL_MUTED), 0);
   } else {
     lv_label_set_text_fmt(vol_hud_lbl, "VOL %d%%", vol);
     lv_obj_set_style_text_color(vol_hud_lbl, lv_color_hex(m_accent_hex), 0);
-  }
-  vol_hud_hide_at = millis() + 1200;
-  if (m_arc_vol) {
-    lv_obj_set_style_arc_width(m_arc_vol, 14, LV_PART_INDICATOR);
   }
   if (!vol_hud_visible) {
     vol_hud_visible = true;
@@ -306,9 +308,12 @@ static void media_wave_timer_cb(lv_timer_t *t) {
   if (toast_visible && now >= toast_hide_at) {
     hide_toast();
   }
-  if (vol_hud_visible && now >= vol_hud_hide_at) {
-    vol_hud_visible = false;
-    lv_obj_add_flag(vol_hud_pill, LV_OBJ_FLAG_HIDDEN);
+  if (vol_hud_hide_at > 0 && now >= vol_hud_hide_at) {
+    vol_hud_hide_at = 0;
+    if (vol_hud_visible) {
+      vol_hud_visible = false;
+      lv_obj_add_flag(vol_hud_pill, LV_OBJ_FLAG_HIDDEN);
+    }
     if (m_arc_vol) {
       lv_obj_set_style_arc_width(m_arc_vol, 10, LV_PART_INDICATOR);
     }
@@ -845,7 +850,7 @@ void ui_set_connected(bool connected) {
   }
 }
 
-void ui_update_volume_local(int vol, bool muted) {
+void ui_update_volume_local(int vol, bool muted, bool showHud) {
   if (vol < 0) vol = 0;
   if (vol > 100) vol = 100;
   lv_arc_set_value(m_arc_vol, vol);
@@ -856,7 +861,9 @@ void ui_update_volume_local(int vol, bool muted) {
     lv_label_set_text_fmt(m_lbl_vol, "VOL %d%%", vol);
     lv_obj_set_style_arc_color(m_arc_vol, lv_color_hex(m_accent_hex), LV_PART_INDICATOR);
   }
-  show_vol_hud(vol, muted);
+  if (showHud) {
+    show_vol_hud(vol, muted);
+  }
 }
 
 void ui_update_media(const MediaInfo &info) {

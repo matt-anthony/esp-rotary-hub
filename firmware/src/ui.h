@@ -65,7 +65,7 @@ typedef void (*UiBlenderCb)(const char *act, const char *mode, int dx, int dy);
 void ui_init(UiMediaCmdCb mediaCb, UiApprovalDecisionCb approvalCb, UiFocusIdeCb focusCb, UiBlenderCb blenderCb);
 void ui_set_connected(bool connected);
 void ui_update_media(const MediaInfo &info);
-void ui_update_volume_local(int vol, bool muted);
+void ui_update_volume_local(int vol, bool muted, bool showHud = false);
 void ui_update_agent(const AgentInfo &info);
 void ui_show_approval(const ApprovalRequest &req);
 void ui_clear_approval();

@@ -91,7 +91,7 @@ static void sendMediaCmd(const char *cmd) {
 static void sendVolumeDelta(int delta) {
   currentVolume = constrain(currentVolume + delta * 3, 0, 100);
   currentMuted = false;
-  ui_update_volume_local(currentVolume, currentMuted);
+  ui_update_volume_local(currentVolume, currentMuted, true);
 
   JsonDocument doc;
   doc["e"] = "vol";
